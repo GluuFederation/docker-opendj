@@ -383,11 +383,16 @@ def configure_serf():
 
     conf = {
         "node_name": guess_host_addr(),
-        "tags": {"role": "ldap"},
-        # "discover": "gluu-ldap",
+        "tags": {
+            "role": "ldap",
+            "admin_port": str(os.environ.get("GLUU_LDAP_ADMIN_PORT", 4444)),
+            "replication_port": str(os.environ.get("GLUU_LDAP_REPLICATION_PORT", 8989)),
+            "secure_port": str(os.environ.get("GLUU_LDAP_SECURE_PORT", 1636)),
+        },
         "log_level": os.environ.get("GLUU_SERF_LOG_LEVEL", "warn"),
         "profile": os.environ.get("GLUU_SERF_PROFILE", "lan"),
         "encrypt_key": get_keygen(),
+        "advertise": os.environ.get("GLUU_SERF_ADVERTISE_ADDR", ""),
     }
 
     mcast = as_boolean(os.environ.get("GLUU_SERF_MULTICAST_DISCOVER", False))
@@ -534,7 +539,7 @@ def configure_opendj():
 
 
 def disable_tls13():
-    java_version = os.environ.get("JAVA_VERSION", "")
+    # java_version = os.environ.get("JAVA_VERSION", "")
     security_file = "/usr/lib/jvm/default-jvm/jre/conf/security/java.security"
 
     with open(security_file) as f:

@@ -1,60 +1,42 @@
 import logging
 import logging.config
-import json
 import os
-import socket
 
 from pygluu.containerlib import get_manager
 from pygluu.containerlib.utils import as_boolean
 from pygluu.containerlib.utils import exec_cmd
 
 from settings import LOGGING_CONFIG
+from utils import guess_serf_addr
+from utils import get_serf_peers
+from utils import register_serf_peer
 
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("ldap_peer")
 
 
-def guess_host_addr():
-    return socket.getfqdn()
-
-
-def get_ldap_peers(manager):
-    return json.loads(manager.config.get("ldap_peers", "[]"))
-
-
-def register_ldap_peer(manager, hostname):
-    peers = set(get_ldap_peers(manager))
-    # add new hostname
-    peers.add(hostname)
-    manager.config.set("ldap_peers", list(peers))
-
-
 def main():
-    auto_repl = as_boolean(os.environ.get("GLUU_LDAP_AUTO_REPLICATE", True))
-    if not auto_repl:
-        logger.warning("Auto replication is disabled; skipping server registration")
-        return
+    # auto_repl = as_boolean(os.environ.get("GLUU_LDAP_AUTO_REPLICATE", True))
+    # if not auto_repl:
+    #     logger.warning("Auto replication is disabled; skipping peer registration")
+    #     return
 
     manager = get_manager()
-    server = guess_host_addr()
-
-    # register current server for discovery
-    register_ldap_peer(manager, server)
+    addr = guess_serf_addr()
+    register_serf_peer(manager, addr)
 
     mcast = as_boolean(os.environ.get("GLUU_SERF_MULTICAST_DISCOVER", False))
     if mcast:
+        # join Serf cluster using multicast (no extra code needed)
         return
 
-    peers = [peer for peer in get_ldap_peers(manager) if peer != server]
+    # join Serf cluster manually
+    peers = " ".join(get_serf_peers(manager))
+    out, err, code = exec_cmd(f"serf join {peers}")
+    err = err or out
 
-    for peer in peers:
-        out, err, code = exec_cmd(f"serf join {peer}")
-
-        if not code:
-            break
-
-        err = err or out
-        logger.warning(f"Unable to join Serf cluster via {peer}; reason={err}")
+    if code != 0:
+        logger.warning(f"Unable to join Serf cluster; reason={err}")
 
 
 if __name__ == "__main__":
