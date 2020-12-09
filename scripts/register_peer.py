@@ -1,3 +1,4 @@
+import json
 import logging
 import logging.config
 import os
@@ -15,6 +16,16 @@ logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("ldap_peer")
 
 
+def peers_from_file():
+    peers = []
+    try:
+        with open("/etc/gluu/conf/serf-peers.json") as f:
+            peers = json.loads(f.read())
+    except FileNotFoundError:
+        pass
+    return peers
+
+
 def main():
     # auto_repl = as_boolean(os.environ.get("GLUU_LDAP_AUTO_REPLICATE", True))
     # if not auto_repl:
@@ -22,6 +33,10 @@ def main():
     #     return
 
     manager = get_manager()
+
+    for addr in peers_from_file():
+        register_serf_peer(manager, addr)
+
     addr = guess_serf_addr()
     register_serf_peer(manager, addr)
 
