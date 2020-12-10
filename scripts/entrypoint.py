@@ -11,6 +11,7 @@ import sys
 from contextlib import contextmanager
 
 from settings import LOGGING_CONFIG
+from utils import guess_serf_addr
 
 import ldap3
 import javaproperties
@@ -381,8 +382,10 @@ def configure_serf():
     if conf_fn.is_file():
         return
 
+    advertise = guess_serf_addr()
+
     conf = {
-        "node_name": guess_host_addr(),
+        "node_name": advertise.split(":")[0],
         "tags": {
             "role": "ldap",
             "admin_port": str(os.environ.get("GLUU_LDAP_ADMIN_PORT", 4444)),
@@ -392,7 +395,7 @@ def configure_serf():
         "log_level": os.environ.get("GLUU_SERF_LOG_LEVEL", "warn"),
         "profile": os.environ.get("GLUU_SERF_PROFILE", "lan"),
         "encrypt_key": get_keygen(),
-        "advertise": os.environ.get("GLUU_SERF_ADVERTISE_ADDR", ""),
+        "advertise": advertise,
     }
 
     mcast = as_boolean(os.environ.get("GLUU_SERF_MULTICAST_DISCOVER", False))
