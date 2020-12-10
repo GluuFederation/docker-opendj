@@ -17,21 +17,18 @@ logger = logging.getLogger("ldap_peer")
 
 
 def peers_from_file():
+    file_ = "/etc/gluu/conf/serf-peers-static.json"
+    logger.info(f"Loading initial Serf peers from {file_}")
     peers = []
     try:
-        with open("/etc/gluu/conf/serf-peers.json") as f:
+        with open(file_) as f:
             peers = json.loads(f.read())
-    except FileNotFoundError:
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        logger.warning(f"Unable to load initial Serf peers from {file_}; reason={exc}")
     return peers
 
 
 def main():
-    # auto_repl = as_boolean(os.environ.get("GLUU_LDAP_AUTO_REPLICATE", True))
-    # if not auto_repl:
-    #     logger.warning("Auto replication is disabled; skipping peer registration")
-    #     return
-
     manager = get_manager()
 
     for addr in peers_from_file():
