@@ -36,12 +36,15 @@ def install_opendj():
     logger.info("Installing OpenDJ.")
 
     # 1) render opendj-setup.properties
+    # admin_port = os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444")
+    admin_port = 4444
+
     ctx = {
         "ldap_hostname": guess_host_addr(),
         "ldap_port": manager.config.get("ldap_port"),
         "ldaps_port": manager.config.get("ldaps_port"),
         "ldap_jmx_port": 1689,
-        "ldap_admin_port": 4444,
+        "ldap_admin_port": admin_port,
         "opendj_ldap_binddn": manager.config.get("ldap_binddn"),
         "ldapPassFn": DEFAULT_ADMIN_PW_PATH,
         "ldap_backend_type": "je",
@@ -76,7 +79,7 @@ def install_opendj():
 
             max_ram_percentage = os.environ.get("GLUU_MAX_RAM_PERCENTAGE", "75.0")
             java_opts = os.environ.get("GLUU_JAVA_OPTIONS", "")
-            repl_arg = f"\ndsreplication.java-args=-client -Dcom.sun.jndi.ldap.object.disableEndpointIdentification=true -XX:+UseContainerSupport -XX:MaxRAMPercentage={max_ram_percentage} {java_opts}"
+            repl_arg = f"\ndsreplication.java-args=-client -Dcom.sun.jndi.ldap.object.disableEndpointIdentification=true -XX:+UseContainerSupport -XX:MaxRAMPercentage={max_ram_percentage}"
 
             args = "".join([status_arg, repl_arg])
             f.write(args)
@@ -388,9 +391,9 @@ def configure_serf():
         "node_name": advertise.split(":")[0],
         "tags": {
             "role": "ldap",
-            "admin_port": str(os.environ.get("GLUU_LDAP_ADMIN_PORT", 4444)),
-            "replication_port": str(os.environ.get("GLUU_LDAP_REPLICATION_PORT", 8989)),
-            "secure_port": str(os.environ.get("GLUU_LDAP_SECURE_PORT", 1636)),
+            "admin_port": os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444"),
+            "replication_port": os.environ.get("GLUU_LDAP_ADVERTISE_REPLICATION_PORT", "8989"),
+            "ldaps_port": os.environ.get("GLUU_LDAP_ADVERTISE_LDAPS_PORT", "1636"),
         },
         "log_level": os.environ.get("GLUU_SERF_LOG_LEVEL", "warn"),
         "profile": os.environ.get("GLUU_SERF_PROFILE", "lan"),
@@ -454,6 +457,8 @@ def create_backends():
         )
     hostname = guess_host_addr()
     binddn = manager.config.get("ldap_binddn")
+    # admin_port = os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444")
+    admin_port = 4444
 
     for mod in mods:
         cmd = " ".join([
@@ -461,7 +466,7 @@ def create_backends():
             "--trustAll",
             "--no-prompt",
             f"--hostname {hostname}",
-            "--port 4444",
+            f"--port {admin_port}",
             f"--bindDN '{binddn}'",
             f"--bindPasswordFile {DEFAULT_ADMIN_PW_PATH}",
             mod,

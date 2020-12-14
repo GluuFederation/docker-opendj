@@ -4,7 +4,7 @@ import logging.config
 import os
 
 from pygluu.containerlib import get_manager
-# from pygluu.containerlib.utils import exec_cmd
+from pygluu.containerlib.utils import exec_cmd
 
 from settings import LOGGING_CONFIG
 from utils import deregister_serf_peer
@@ -35,27 +35,28 @@ def admin_password_bound(manager, password_file=DEFAULT_ADMIN_PW_PATH):
 def main():
     manager = get_manager()
     addr = guess_serf_addr()
+    host = addr.split(":")[0]
 
     deregister_serf_peer(manager, addr)
 
-    # with admin_password_bound(manager) as password_file:
-    #     cmd = " ".join([
-    #         "/opt/opendj/bin/dsreplication",
-    #         "disable",
-    #         "--disableAll",
-    #         "--port 4444",
-    #         f"--hostname {server}",
-    #         "--adminUID admin",
-    #         f"--adminPasswordFile {password_file}",
-    #         "-X",
-    #         "-n",
-    #         "-Q",
-    #     ])
-    #     out, err, code = exec_cmd(cmd)
+    with admin_password_bound(manager) as password_file:
+        cmd = " ".join([
+            "/opt/opendj/bin/dsreplication",
+            "disable",
+            "--disableAll",
+            "--port 4444",
+            f"--hostname {host}",
+            "--adminUID admin",
+            f"--adminPasswordFile {password_file}",
+            "-X",
+            "-n",
+            "-Q",
+        ])
+        out, err, code = exec_cmd(cmd)
 
-    #     if code:
-    #         err = err or out
-    #         logger.warning(f"Unable to disable replication for current server; reason={err.decode()}")
+        if code:
+            err = err or out
+            logger.warning(f"Unable to disable replication for current server; reason={err.decode()}")
 
 
 if __name__ == "__main__":
