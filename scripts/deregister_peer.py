@@ -36,6 +36,7 @@ def main():
     manager = get_manager()
     addr = guess_serf_addr()
     host = addr.split(":")[0]
+    admin_port = os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444")
 
     deregister_serf_peer(manager, addr)
 
@@ -44,7 +45,7 @@ def main():
             "/opt/opendj/bin/dsreplication",
             "disable",
             "--disableAll",
-            "--port 4444",
+            f"--port {admin_port}",
             f"--hostname {host}",
             "--adminUID admin",
             f"--adminPasswordFile {password_file}",
