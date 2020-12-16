@@ -5,7 +5,7 @@ import ldap3
 from pygluu.containerlib import get_manager
 from pygluu.containerlib.utils import decode_text
 
-from ldap_replicator import get_ldap_peers
+from ldap_replicator import peers_from_serf_membership
 
 
 def get_ldap_entries(host, user, password):
@@ -47,7 +47,7 @@ def get_ldap_entries(host, user, password):
 
 def main():
     # check how many member in ldap cluster,
-    peers_num = len(get_ldap_peers())
+    peers_num = len(peers_from_serf_membership())
 
     if peers_num == 0:
         sys.exit(1)
