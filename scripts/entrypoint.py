@@ -37,7 +37,8 @@ def install_opendj():
     logger.info("Installing OpenDJ.")
 
     # 1) render opendj-setup.properties
-    admin_port = 4444
+    # admin_port = 4444
+    admin_port = os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444")
 
     ctx = {
         "ldap_hostname": guess_host_addr(),
@@ -466,7 +467,8 @@ def create_backends():
 
     hostname = guess_host_addr()
     binddn = manager.config.get("ldap_binddn")
-    admin_port = 4444
+    admin_port = os.environ.get("GLUU_LDAP_ADVERTISE_ADMIN_PORT", "4444")
+    # admin_port = 4444
 
     for mod in mods:
         cmd = " ".join([
