@@ -128,7 +128,7 @@ def check_required_entry(host, port, user, base_dn):
 
 def get_ldap_status(bind_dn):
     with admin_password_bound(manager) as password_file:
-        cmd = f"/opt/opendj/bin/status -D '{bind_dn}' --bindPasswordFile {password_file} --connectTimeout 10000"
+        cmd = f"/opt/opendj/bin/status -D '{bind_dn}' --bindPasswordFile {password_file} --connectTimeout 10000 -X"
         out, err, code = exec_cmd(cmd)
         return out.strip(), err.strip(), code
 
