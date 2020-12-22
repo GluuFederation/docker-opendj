@@ -48,6 +48,10 @@ The following environment variables are supported by the container:
 - `GLUU_SERF_PROFILE`: Serf timing profile (one of `local`, `lan`, or `wan`) To support setting the correct configuration values for each environment (default to `lan`).
 - `GLUU_SERF_LOG_LEVEL`: The level of logging to show after the Serf agent has started (one of `trace`, `debug`, `info`, `warn`, `err`; default to `warn`).
 - `GLUU_SERF_MULTICAST_DISCOVER`: Auto-discover cluster using mDNS (default to `false`). Note this requires multicast support on network environment.
+- `GLUU_SERF_ADVERTISE_ADDR`: The address (`host:ip` format) that advertised to other Serf nodes in the cluster. If the value is empty, fallback to FQDN of container's hostname and port 7946. Note that port 7946 will always be opened inside container.
+- `GLUU_LDAP_ADVERTISE_ADMIN_PORT`: The admin port that advertised to other OpenDJ nodes in the cluster (default to `4444`). Note that the port inside the container will use this value instead of `4444`.
+- `GLUU_LDAP_ADVERTISE_REPLICATION_PORT`: The replication port that advertised to other OpenDJ nodes in the cluster (default to `8989`). Note that the port inside container will use this value instead of `8989`.
+- `GLUU_LDAP_ADVERTISE_LDAPS_PORT`: The secure port that advertised to other OpenDJ nodes in the cluster (default to `1636`). Note that port 1636 will always be opened inside container.
 
 ## Deployment Strategy
 
@@ -68,3 +72,25 @@ The replication process is automatically run when the container runs, only if th
 2. The `o=gluu`, `o=site`, `o=metric` backends have not been replicated nor have entries
 
 Check the LDAP container logs to see the result and optionally run `/opt/opendj/bin/dsreplication status` inside the container.
+
+### Replication Using Advertised Address and Port
+
+**WARNING:** this feature is considered alpha and should be used with caution.
+
+By default, each container will open the following ports internally:
+
+- 1636/tcp (LDAPS port)
+- 4444/tcp (admin port)
+- 8989/tcp (replication port)
+- 7946/udp+tcp (Serf port)
+
+All replication communication is done via address that resolved from container's hostname (FQDN format; i.e. `opendj-0.opendj.gluu.svc.cluster.local`).
+
+If somehow we want to use another address and ports, it can be done by running the following steps on each container:
+
+1.  Set the `GLUU_SERF_ADVERTISE_ADDR` envvar; i.e. `GLUU_SERF_ADVERTISE_ADDR=node1.example.com:30946`. Make sure there is port mapping between 30946 (node) and 7946 (container) for both TCP and UDP protocols. Note that `node1.example.com` address must be reachable from all containers.
+1.  Set the `GLUU_LDAP_ADVERTISE_ADMIN_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30444`. Make sure there is port mapping between 30444 (node) and 30444 (container).
+1.  Set the `GLUU_LDAP_ADVERTISE_LDAPS_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30636`. Make sure there is port mapping between 30636 (node) and 1636 (container).
+1.  Set the `GLUU_LDAP_ADVERTISE_REPLICATION_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30989`. Make sure there is port mapping between 30989 (node) and 30989 (container).
+
+Check the LDAP container logs to see the result of replication and optionally run `/opt/opendj/bin/dsreplication status -X` inside the container.
