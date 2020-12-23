@@ -90,7 +90,7 @@ If somehow we want to use another address and ports, it can be done by running t
 
 1.  Set the `GLUU_SERF_ADVERTISE_ADDR` envvar; i.e. `GLUU_SERF_ADVERTISE_ADDR=node1.example.com:30946`. Make sure there is port mapping between 30946 (node) and 7946 (container) for both TCP and UDP protocols. Note that `node1.example.com` address must be reachable from all containers.
 1.  Set the `GLUU_LDAP_ADVERTISE_ADMIN_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30444`. Make sure there is port mapping between 30444 (node) and 30444 (container).
-1.  Set the `GLUU_LDAP_ADVERTISE_LDAPS_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30636`. Make sure there is port mapping between 30636 (node) and 1636 (container).
-1.  Set the `GLUU_LDAP_ADVERTISE_REPLICATION_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_ADMIN_PORT=30989`. Make sure there is port mapping between 30989 (node) and 30989 (container).
+1.  Set the `GLUU_LDAP_ADVERTISE_LDAPS_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_LDAPS_PORT=30636`. Make sure there is port mapping between 30636 (node) and 1636 (container).
+1.  Set the `GLUU_LDAP_ADVERTISE_REPLICATION_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_REPLICATION_PORT=30989`. Make sure there is port mapping between 30989 (node) and 30989 (container).
 
 Check the LDAP container logs to see the result of replication and optionally run `/opt/opendj/bin/dsreplication status -X` inside the container.
