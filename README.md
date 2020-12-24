@@ -49,6 +49,7 @@ The following environment variables are supported by the container:
 - `GLUU_SERF_LOG_LEVEL`: The level of logging to show after the Serf agent has started (one of `trace`, `debug`, `info`, `warn`, `err`; default to `warn`).
 - `GLUU_SERF_MULTICAST_DISCOVER`: Auto-discover cluster using mDNS (default to `false`). Note this requires multicast support on network environment.
 - `GLUU_SERF_ADVERTISE_ADDR`: The address (`host:ip` format) that advertised to other Serf nodes in the cluster. If the value is empty, fallback to FQDN of container's hostname and port 7946. Note that port 7946 will always be opened inside container.
+- `GLUU_SERF_KEY_FILE`: Absolute path to file contains encryption key for Serf (default to `/etc/gluu/conf/serf-key`). See [Serf encryption key](#serf-encryption-key) for reference.
 - `GLUU_LDAP_ADVERTISE_ADMIN_PORT`: The admin port that advertised to other OpenDJ nodes in the cluster (default to `4444`). Note that the port inside the container will use this value instead of `4444`.
 - `GLUU_LDAP_ADVERTISE_REPLICATION_PORT`: The replication port that advertised to other OpenDJ nodes in the cluster (default to `8989`). Note that the port inside container will use this value instead of `8989`.
 - `GLUU_LDAP_ADVERTISE_LDAPS_PORT`: The secure port that advertised to other OpenDJ nodes in the cluster (default to `1636`). Note that port 1636 will always be opened inside container.
@@ -94,3 +95,24 @@ If somehow we want to use another address and ports, it can be done by running t
 1.  Set the `GLUU_LDAP_ADVERTISE_REPLICATION_PORT` envvar; i.e. `GLUU_LDAP_ADVERTISE_REPLICATION_PORT=30989`. Make sure there is port mapping between 30989 (node) and 30989 (container).
 
 Check the LDAP container logs to see the result of replication and optionally run `/opt/opendj/bin/dsreplication status -X` inside the container.
+
+## Serf Encryption Key
+
+Each Serf agent running inside the container requires same encryption key to communicate to each other.
+
+The key is resolved by the following order:
+
+1.  Load from secrets (if any).
+
+1.  Load from file (if any) where the absolute path is defined in `GLUU_SERF_KEY_FILE` environment variable (default to `/etc/gluu/conf/serf-key`).
+    The key size must be a 16, 24, or 32 bytes encoded as base64 string.
+
+    Example of valid key string:
+
+        # python 3.6+
+        python -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes()).decode())"
+        # output: Z51b6PgKU1MZ75NCZOTGGoc0LP2OF3qvF6sjxHyQCYk=
+
+    This key will be saved to secrets.
+
+1.  Load from `serf keygen` command. This key will be saved to secrets.

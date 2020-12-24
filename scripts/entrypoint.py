@@ -379,15 +379,38 @@ def is_wrends():
     return os.path.isfile("/opt/opendj/lib/wrends.jar")
 
 
-def configure_serf():
-    def get_keygen():
+def resolve_serf_key():
+    def key_from_secrets():
         keygen = manager.secret.get("serf_gluu_ldap_key")
-        if not keygen:
-            out, _, _ = exec_cmd("serf keygen")
-            keygen = out.decode().strip()
-            manager.secret.set("serf_gluu_ldap_key", keygen)
         return keygen
 
+    def key_from_file():
+        keygen = ""
+        keygen_file = os.environ.get("GLUU_SERF_KEY_FILE", "/etc/gluu/conf/serf-key")
+
+        if os.path.isfile(keygen_file):
+            with open(keygen_file) as f:
+                keygen = f.read().strip()
+        return keygen
+
+    def key_from_cmd():
+        out, _, _ = exec_cmd("serf keygen")
+        keygen = out.decode().strip()
+        return keygen
+
+    # load from secrets (if any)
+    keygen = manager.secret.get("serf_gluu_ldap_key")
+
+    # no key from secrets
+    if not keygen:
+        # try loading it from file or from `serf keygen` command
+        keygen = key_from_file() or key_from_cmd()
+        # save it for subsequent access
+        manager.secret.set("serf_gluu_ldap_key", keygen)
+    return keygen
+
+
+def configure_serf():
     conf_fn = pathlib.Path("/etc/gluu/conf/serf.json")
 
     # skip if config exists
@@ -406,7 +429,7 @@ def configure_serf():
         },
         "log_level": os.environ.get("GLUU_SERF_LOG_LEVEL", "warn"),
         "profile": os.environ.get("GLUU_SERF_PROFILE", "lan"),
-        "encrypt_key": get_keygen(),
+        "encrypt_key": resolve_serf_key(),
         "advertise": advertise,
     }
 

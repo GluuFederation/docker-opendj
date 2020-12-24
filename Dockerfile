@@ -65,7 +65,6 @@ COPY LICENSE /licenses/
 # ====
 
 EXPOSE 1636
-EXPOSE 4444
 
 # ==========
 # Config ENV
@@ -126,7 +125,8 @@ ENV GLUU_LDAP_AUTO_REPLICATE=true \
     GLUU_JAVA_OPTIONS="" \
     GLUU_SERF_PROFILE=lan \
     GLUU_SERF_LOG_LEVEL=warn \
-    GLUU_SERF_ADVERTISE_ADDR=""
+    GLUU_SERF_ADVERTISE_ADDR="" \
+    GLUU_SERF_KEY_FILE=/etc/gluu/conf/serf-key
 
 # ====
 # misc
