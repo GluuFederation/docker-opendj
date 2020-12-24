@@ -3,10 +3,8 @@ import logging
 import logging.config
 import os
 import pathlib
-import shlex
 import shutil
 import socket
-import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -16,10 +14,14 @@ from utils import guess_serf_addr
 
 import ldap3
 import javaproperties
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+
 from pygluu.containerlib import get_manager
 from pygluu.containerlib.utils import decode_text
 from pygluu.containerlib.utils import exec_cmd
 from pygluu.containerlib.utils import as_boolean
+from pygluu.containerlib.utils import generate_ssl_certkey
 
 DEFAULT_ADMIN_PW_PATH = "/opt/opendj/.pw"
 
@@ -121,7 +123,7 @@ def ds_context():
 
     try:
         yield
-    except Exception:
+    except Exception:  # noqa: B902
         raise
     finally:
         exec_cmd("/opt/opendj/bin/stop-ds --quiet")
@@ -175,13 +177,14 @@ def main():
     sync_ldap_pkcs12()
 
     logger.info("Checking certificate's Subject Alt Name (SAN)")
-    san = get_certificate_san("/etc/certs/opendj.crt").replace("DNS:", "")
+    san = get_certificate_san("/etc/certs/opendj.crt")
 
-    if alt_name != san:
+    if alt_name not in san:
         logger.info("Re-generating OpenDJ certs with SAN support.")
 
-        render_san_cnf(alt_name)
-        regenerate_ldap_certs()
+        # add new alt name
+        san.append(alt_name)
+        regenerate_ldap_certs(extra_dns=san)
 
         # update secrets
         manager.secret.from_file("ldap_ssl_cert", "/etc/certs/opendj.crt", encode=True)
@@ -243,20 +246,8 @@ def main():
             pass
 
 
-def render_san_cnf(name):
-    ctx = {"alt_name": name}
-
-    with open("/app/templates/ssl/san.cnf") as fr:
-        txt = fr.read() % ctx
-
-        with open("/etc/ssl/san.cnf", "w")as fw:
-            fw.write(txt)
-
-
-def regenerate_ldap_certs():
+def regenerate_ldap_certs(extra_dns=None):
     suffix = "opendj"
-    passwd = decode_text(manager.secret.get("encoded_ox_ldap_pw"),
-                         manager.secret.get("encoded_salt")).decode()
     country_code = manager.config.get("country_code")
     state = manager.config.get("state")
     city = manager.config.get("city")
@@ -264,38 +255,22 @@ def regenerate_ldap_certs():
     domain = manager.config.get("hostname")
     email = manager.config.get("admin_email")
 
-    # create key with password
-    _, err, retcode = exec_cmd(
-        "openssl genrsa -des3 -out /etc/certs/{}.key.orig "
-        "-passout pass:'{}' 2048".format(suffix, passwd))
-    assert retcode == 0, "Failed to generate SSL key with password; reason={}".format(err.decode())
-
-    # create .key
-    _, err, retcode = exec_cmd(
-        "openssl rsa -in /etc/certs/{0}.key.orig "
-        "-passin pass:'{1}' -out /etc/certs/{0}.key".format(suffix, passwd))
-    assert retcode == 0, "Failed to generate SSL key; reason={}".format(err.decode())
-
-    # create .csr
-    _, err, retcode = exec_cmd(
-        "openssl req -new -key /etc/certs/{0}.key "
-        "-out /etc/certs/{0}.csr "
-        "-config /etc/ssl/san.cnf "
-        "-subj /C='{1}'/ST='{2}'/L='{3}'/O='{4}'/CN='{5}'/emailAddress='{6}'".format(suffix, country_code, state, city, org_name, domain, email))
-    assert retcode == 0, "Failed to generate SSL CSR; reason={}".format(err.decode())
-
-    # create .crt
-    _, err, retcode = exec_cmd(
-        "openssl x509 -req -days 365 -in /etc/certs/{0}.csr "
-        "-extensions v3_req -extfile /etc/ssl/san.cnf "
-        "-signkey /etc/certs/{0}.key -out /etc/certs/{0}.crt".format(suffix))
-    assert retcode == 0, "Failed to generate SSL cert; reason={}".format(err.decode())
+    cert, key = generate_ssl_certkey(
+        suffix,
+        email,
+        domain,
+        org_name,
+        country_code,
+        state,
+        city,
+        extra_dns=extra_dns,
+    )
 
     with open("/etc/certs/{}.pem".format(suffix), "w") as fw:
-        with open("/etc/certs/{}.crt".format(suffix)) as fr:
+        with open(cert) as fr:
             ldap_ssl_cert = fr.read()
 
-        with open("/etc/certs/{}.key".format(suffix)) as fr:
+        with open(key) as fr:
             ldap_ssl_key = fr.read()
 
         ldap_ssl_cacert = "".join([ldap_ssl_cert, ldap_ssl_key])
@@ -323,17 +298,12 @@ def regenerate_ldap_pkcs12():
 
 
 def get_certificate_san(certpath) -> str:
-    openssl_proc = subprocess.Popen(
-        shlex.split("openssl x509 -text -noout -in {}".format(certpath)),
-        stdout=subprocess.PIPE,
-    )
-    grep_proc = subprocess.Popen(
-        shlex.split("grep DNS"),
-        stdout=subprocess.PIPE,
-        stdin=openssl_proc.stdout,
-    )
-    san = grep_proc.communicate()[0]
-    return san.strip().decode()
+    with open(certpath, "rb") as f:
+        crt = x509.load_pem_x509_certificate(f.read(), backend=default_backend())
+
+    san_obj = crt.extensions.get_extension_for_oid(x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+    sans = [f"{name.value}" for name in san_obj.value]
+    return sans
 
 
 def cleanup_config_dir():
@@ -369,7 +339,7 @@ def cleanup_config_dir():
         except OSError:
             # delete file
             os.unlink(path)
-        except Exception as exc:
+        except Exception as exc:  # noqa: B902
             # Unforeseen information in the config/ dir will be logged and
             # prompt the administrator to deal with their issue.
             logger.warning(exc)
@@ -592,7 +562,6 @@ def configure_opendj():
 
 
 def disable_tls13():
-    # java_version = os.environ.get("JAVA_VERSION", "")
     security_file = "/usr/lib/jvm/default-jvm/jre/conf/security/java.security"
 
     with open(security_file) as f:
