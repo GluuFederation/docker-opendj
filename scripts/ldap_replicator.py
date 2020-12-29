@@ -3,6 +3,7 @@ import json
 import logging
 import logging.config
 import os
+import sys
 import time
 from collections import defaultdict
 
@@ -250,17 +251,38 @@ def peers_from_serf_membership():
 
 
 def get_server_info():
-    out, err, code = exec_cmd("serf info -format json")
-    if code != 0:
-        err = err or out
-        logger.warning("Unable to get info for current server; reason={err.decode()}")
+    server = {}
+    attempt = 1
 
-    info = json.loads(out.decode())
-    server = {
-        "name": info["agent"]["name"],
-        "addr": guess_serf_addr(),
-        "tags": info["tags"],
-    }
+    logger.info("Getting current server info")
+
+    while attempt <= 3:
+        out, err, code = exec_cmd("serf info -format json")
+
+        if code != 0:
+            err = err or out
+            logger.warning(f"Unable to get current server info from Serf; reason={err.decode()} ... retrying in 10 seconds")
+        else:
+            try:
+                info = json.loads(out.decode())
+                server = {
+                    "name": info["agent"]["name"],
+                    "addr": guess_serf_addr(),
+                    "tags": info["tags"],
+                }
+                return server
+            except json.decoder.JSONDecodeError as exc:
+                logger.warning(f"Unable to decode JSON output from Serf command; reason={exc} ... retrying in 10 seconds")
+
+        # bump the counter
+        time.sleep(10)
+        attempt += 1
+
+    if not server:
+        logger.error("Unable to get info for current server after 3 attempts ... exiting")
+        sys.exit(1)
+
+    # return the server info
     return server
 
 
