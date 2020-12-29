@@ -380,33 +380,45 @@ def is_wrends():
 
 
 def resolve_serf_key():
-    def key_from_secrets():
-        keygen = manager.secret.get("serf_gluu_ldap_key")
-        return keygen
-
     def key_from_file():
         keygen = ""
         keygen_file = os.environ.get("GLUU_SERF_KEY_FILE", "/etc/gluu/conf/serf-key")
 
         if os.path.isfile(keygen_file):
-            with open(keygen_file) as f:
-                keygen = f.read().strip()
+            try:
+                logger.info(f"Loading Serf key from {keygen_file}")
+                with open(keygen_file) as f:
+                    keygen = f.read().strip()
+                    # save it for subsequent access
+                    manager.secret.set("serf_gluu_ldap_key", keygen)
+            except UnicodeDecodeError as exc:
+                logger.warning(f"Invalid Serf key; reason={exc}")
         return keygen
 
     def key_from_cmd():
-        out, _, _ = exec_cmd("serf keygen")
+        keygen = ""
+
+        logger.info("Loading Serf key from serf keygen command")
+
+        out, err, code = exec_cmd("serf keygen")
+        if code != 0:
+            logger.warning(f"Unable to self-generate Serf key; reason={err.decode()}")
+            return keygen
+
         keygen = out.decode().strip()
+        # save it for subsequent access
+        manager.secret.set("serf_gluu_ldap_key", keygen)
         return keygen
 
     # load from secrets (if any)
+    logger.info("Loading Serf key from secrets")
     keygen = manager.secret.get("serf_gluu_ldap_key")
 
     # no key from secrets
     if not keygen:
+        logger.warning("Unable to load Serf key from secrets")
         # try loading it from file or from `serf keygen` command
         keygen = key_from_file() or key_from_cmd()
-        # save it for subsequent access
-        manager.secret.set("serf_gluu_ldap_key", keygen)
     return keygen
 
 
