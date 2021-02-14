@@ -1,17 +1,14 @@
-FROM adoptopenjdk/openjdk11:jre-11.0.8_10-alpine
-
-# symlink JVM
-RUN mkdir -p /usr/lib/jvm/default-jvm /usr/java/latest \
-    && ln -sf /opt/java/openjdk /usr/lib/jvm/default-jvm/jre \
-    && ln -sf /usr/lib/jvm/default-jvm/jre /usr/java/latest/jre
+FROM alpine:3.13
 
 # ===============
 # Alpine packages
 # ===============
 
 RUN apk update \
-    && apk add --no-cache openssl py3-pip tini curl \
-    && apk add --no-cache --virtual build-deps wget git gcc musl-dev python3-dev libffi-dev openssl-dev
+    && apk add --no-cache openssl py3-pip tini curl openjdk11-jre-headless py3-cryptography \
+    && apk add --no-cache --virtual build-deps wget git \
+    && mkdir -p /usr/java/latest \
+    && ln -sf /usr/lib/jvm/default-jvm/jre /usr/java/latest/jre
 
 # ======
 # OpenDJ
