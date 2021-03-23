@@ -53,6 +53,7 @@ The following environment variables are supported by the container:
 - `GLUU_LDAP_ADVERTISE_ADMIN_PORT`: The admin port that advertised to other OpenDJ nodes in the cluster (default to `4444`). Note that the port inside the container will use this value instead of `4444`.
 - `GLUU_LDAP_ADVERTISE_REPLICATION_PORT`: The replication port that advertised to other OpenDJ nodes in the cluster (default to `8989`). Note that the port inside container will use this value instead of `8989`.
 - `GLUU_LDAP_ADVERTISE_LDAPS_PORT`: The secure port that advertised to other OpenDJ nodes in the cluster (default to `1636`). Note that port 1636 will always be opened inside container.
+- `GLUU_LDAP_ADVERTISE_LDAP_PORT`: The non-secure port that advertised to other OpenDJ nodes in the cluster (default to `1389`). Note that port 1389 will always be opened inside container.
 
 ## Deployment Strategy
 
