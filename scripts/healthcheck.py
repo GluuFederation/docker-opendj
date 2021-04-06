@@ -1,17 +1,15 @@
 import os
 import sys
 
-import ldap3
 from pygluu.containerlib import get_manager
-from pygluu.containerlib.utils import decode_text
+from pygluu.containerlib.persistence.ldap import LdapClient
 
 from ldap_replicator import peers_from_serf_membership
 
 
-def get_ldap_entries(host, user, password):
+def get_ldap_entries(manager):
     persistence_type = os.environ.get("GLUU_PERSISTENCE_TYPE", "ldap")
     ldap_mapping = os.environ.get("GLUU_PERSISTENCE_LDAP_MAPPING", "default")
-    ldap_server = ldap3.Server(host, 1636, use_ssl=True)
 
     # a minimum service stack is having oxTrust, hence check whether entry
     # for oxTrust exists in LDAP
@@ -34,15 +32,9 @@ def get_ldap_entries(host, user, password):
     else:
         search = default_search
 
-    with ldap3.Connection(ldap_server, user, password) as conn:
-        conn.search(
-            search_base=search[0],
-            search_filter=search[1],
-            search_scope=ldap3.SUBTREE,
-            attributes=["objectClass"],
-            size_limit=1,
-        )
-        return conn.entries
+    # connect to localhost
+    client = LdapClient(manager, host="localhost")
+    return client.get(search[0], filter_=search[1], attributes=["objectClass"])
 
 
 def main():
@@ -59,14 +51,7 @@ def main():
         # if there are more than 1 instances, determine the server readiness by
         # checking entries in persistence
         manager = get_manager()
-        host = "localhost:1636"
-        user = manager.config.get("ldap_binddn")
-        password = decode_text(
-            manager.secret.get("encoded_ox_ldap_pw"),
-            manager.secret.get("encoded_salt")
-        )
-
-        result = get_ldap_entries(host, user, password)
+        result = get_ldap_entries(manager)
         if result:
             sys.exit(0)
         else:

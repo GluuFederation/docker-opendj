@@ -31,7 +31,7 @@ def admin_password_bound(manager, password_file=DEFAULT_ADMIN_PW_PATH):
 
     try:
         yield password_file
-    except Exception:
+    except Exception:  # noqa: B902
         raise
     finally:
         with contextlib.suppress(FileNotFoundError):
@@ -99,7 +99,7 @@ def replicate_from(peer, server, base_dn):
             logger.warning(err.decode().strip())
 
 
-def check_required_entry(host, port, user, base_dn):
+def check_required_entry(host, port, user, base_dn, use_ssl):
     """Checks if entry is exist.
     """
     if base_dn == "o=metric":
@@ -111,18 +111,25 @@ def check_required_entry(host, port, user, base_dn):
         dn = f"inum={client_id},ou=clients,{base_dn}"
 
     with admin_password_bound(manager) as password_file:
-        cmd = " ".join([
+        cmd = [
             "/opt/opendj/bin/ldapsearch",
             f"--hostname {host}",
             f"--port {port}",
             f"--baseDN '{dn}'",
             f"--bindDN '{user}'",
             f"--bindPasswordFile {password_file}",
-            "-Z",
+        ]
+
+        if use_ssl:
+            cmd.append("-Z")
+
+        cmd += [
             "-X",
             "--searchScope base",
             "'(objectClass=*)' 1.1",
-        ])
+        ]
+        cmd = " ".join(cmd)
+
         out, err, code = exec_cmd(cmd)
         return out.strip(), err.strip(), code
 
@@ -299,6 +306,8 @@ def main():
     max_retries = get_repl_max_retries()
     retry = 0
 
+    use_ssl = as_boolean(os.environ.get("GLUU_LDAP_USE_SSL", True))
+
     while retry < max_retries:
         logger.info(f"Checking replicated backends (attempt {retry + 1})")
 
@@ -320,8 +329,17 @@ def main():
 
             logger.info(f"Found peer at {peer['name']}")
             for dn, _ in datasources.items():
+                if use_ssl:
+                    peer_port = peer["tags"]["ldaps_port"]
+                else:
+                    peer_port = peer["tags"]["ldap_port"]
+
                 _, err, code = check_required_entry(
-                    peer["name"], peer["tags"]["ldaps_port"], ldap_user, dn,
+                    peer["name"],
+                    peer_port,
+                    ldap_user,
+                    dn,
+                    use_ssl,
                 )
                 if code != 0:
                     logger.warning(
