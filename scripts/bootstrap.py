@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from settings import LOGGING_CONFIG
 from utils import guess_serf_addr
 
-import ldap3
 import javaproperties
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -23,6 +22,7 @@ from jans.pycloudlib.utils import decode_text
 from jans.pycloudlib.utils import exec_cmd
 from jans.pycloudlib.utils import as_boolean
 from jans.pycloudlib.utils import generate_ssl_certkey
+from jans.pycloudlib.persistence.ldap import LdapClient
 
 DEFAULT_ADMIN_PW_PATH = "/opt/opendj/.pw"
 
@@ -43,7 +43,6 @@ def install_opendj():
     logger.info("Installing OpenDJ.")
 
     # 1) render opendj-setup.properties
-    # admin_port = 4444
     admin_port = os.environ.get("CN_LDAP_ADVERTISE_ADMIN_PORT", "4444")
 
     ctx = {
@@ -122,7 +121,7 @@ def ds_context():
 
     try:
         yield
-    except Exception:
+    except Exception:  # noqa: B902
         raise
     finally:
         exec_cmd("/opt/opendj/bin/stop-ds --quiet")
@@ -200,7 +199,11 @@ def main():
 
     # update ldap_init_*
     manager.config.set("ldap_init_host", alt_name)
-    manager.config.set("ldap_init_port", 1636)
+    if as_boolean(os.environ.get("CN_LDAP_USE_SSL", "True")):
+        port = 1636
+    else:
+        port = 1389
+    manager.config.set("ldap_init_port", port)
 
     # do upgrade if required
     run_upgrade()
@@ -239,16 +242,6 @@ def main():
             os.unlink(f)
         except OSError:
             pass
-
-
-def render_san_cnf(name):
-    ctx = {"alt_name": name}
-
-    with open("/app/templates/ssl/san.cnf") as fr:
-        txt = fr.read() % ctx
-
-        with open("/etc/ssl/san.cnf", "w")as fw:
-            fw.write(txt)
 
 
 def regenerate_ldap_certs(extra_dns=None):
@@ -338,7 +331,7 @@ def cleanup_config_dir():
         except OSError:
             # delete file
             os.unlink(path)
-        except Exception as exc:
+        except Exception as exc:  # noqa: B902
             # Unforeseen information in the config/ dir will be logged and
             # prompt the administrator to deal with their issue.
             logger.warning(exc)
@@ -403,6 +396,7 @@ def configure_serf():
             "admin_port": os.environ.get("CN_LDAP_ADVERTISE_ADMIN_PORT", "4444"),
             "replication_port": os.environ.get("CN_LDAP_ADVERTISE_REPLICATION_PORT", "8989"),
             "ldaps_port": os.environ.get("CN_LDAP_ADVERTISE_LDAPS_PORT", "1636"),
+            "ldap_port": os.environ.get("CN_LDAP_ADVERTISE_LDAP_PORT", "1389"),
         },
         "log_level": os.environ.get("CN_SERF_LOG_LEVEL", "warn"),
         "profile": os.environ.get("CN_SERF_PROFILE", "lan"),
@@ -423,36 +417,28 @@ def configure_opendj_indexes():
     with open("/app/templates/index.json") as f:
         data = json.load(f)
 
-    host = "localhost:1636"
-    user = manager.config.get("ldap_binddn")
-    password = decode_text(
-        manager.secret.get("encoded_ox_ldap_pw"),
-        manager.secret.get("encoded_salt"),
-    )
-
-    ldap_server = ldap3.Server(host, 1636, use_ssl=True)
-
     backends = ["userRoot", "metric"]
     if require_site():
         backends.append("site")
 
-    with ldap3.Connection(ldap_server, user, password) as conn:
-        for attr_map in data:
-            for backend in attr_map["backend"]:
-                if backend not in backends:
-                    continue
+    # connect to localhost
+    client = LdapClient(manager, host="localhost")
+    for attr_map in data:
+        for backend in attr_map["backend"]:
+            if backend not in backends:
+                continue
 
-                dn = f"ds-cfg-attribute={attr_map['attribute']},cn=Index,ds-cfg-backend-id={backend},cn=Backends,cn=config"
-                attrs = {
-                    'objectClass': ['top', 'ds-cfg-backend-index'],
-                    'ds-cfg-attribute': [attr_map['attribute']],
-                    'ds-cfg-index-type': attr_map['index'],
-                    'ds-cfg-index-entry-limit': ['4000'],
-                }
+            dn = f"ds-cfg-attribute={attr_map['attribute']},cn=Index,ds-cfg-backend-id={backend},cn=Backends,cn=config"
+            attrs = {
+                'objectClass': ['top', 'ds-cfg-backend-index'],
+                'ds-cfg-attribute': [attr_map['attribute']],
+                'ds-cfg-index-type': attr_map['index'],
+                'ds-cfg-index-entry-limit': ['4000'],
+            }
 
-                conn.add(dn, attributes=attrs)
-                if conn.result["description"] != "success":
-                    logger.warning(conn.result["message"])
+            added, msg = client.add(dn, attributes=attrs)
+            if not added:
+                logger.warning(msg)
 
 
 def create_backends():
@@ -468,7 +454,6 @@ def create_backends():
     hostname = guess_host_addr()
     binddn = manager.config.get("ldap_binddn")
     admin_port = os.environ.get("CN_LDAP_ADVERTISE_ADMIN_PORT", "4444")
-    # admin_port = 4444
 
     for mod in mods:
         cmd = " ".join([
@@ -490,66 +475,57 @@ def create_backends():
 def configure_opendj():
     logger.info("Configuring OpenDJ.")
 
-    host = "localhost:1636"
-    user = manager.config.get("ldap_binddn")
-    password = decode_text(
-        manager.secret.get("encoded_ox_ldap_pw"),
-        manager.secret.get("encoded_salt"),
-    )
-
-    ldap_server = ldap3.Server(host, 1636, use_ssl=True)
-
     mods = [
-        ('ds-cfg-backend-id=userRoot,cn=Backends,cn=config', 'ds-cfg-db-cache-percent', '70', ldap3.MODIFY_REPLACE),
-        ('cn=config', 'ds-cfg-single-structural-objectclass-behavior', 'accept', ldap3.MODIFY_REPLACE),
-        ('cn=config', 'ds-cfg-reject-unauthenticated-requests', 'true', ldap3.MODIFY_REPLACE),
-        ('cn=Default Password Policy,cn=Password Policies,cn=config', 'ds-cfg-allow-pre-encoded-passwords', 'true', ldap3.MODIFY_REPLACE),
-        ('cn=Default Password Policy,cn=Password Policies,cn=config', 'ds-cfg-default-password-storage-scheme', 'cn=Salted SHA-512,cn=Password Storage Schemes,cn=config', ldap3.MODIFY_REPLACE),
-        ('cn=File-Based Audit Logger,cn=Loggers,cn=config', 'ds-cfg-enabled', 'true', ldap3.MODIFY_REPLACE),
-        ('cn=LDAP Connection Handler,cn=Connection Handlers,cn=config', 'ds-cfg-enabled', 'false', ldap3.MODIFY_REPLACE),
-        ('cn=JMX Connection Handler,cn=Connection Handlers,cn=config', 'ds-cfg-enabled', 'false', ldap3.MODIFY_REPLACE),
-        ('cn=Access Control Handler,cn=config', 'ds-cfg-global-aci', '(targetattr!="userPassword||authPassword||debugsearchindex||changes||changeNumber||changeType||changeTime||targetDN||newRDN||newSuperior||deleteOldRDN")(version 3.0; acl "Anonymous read access"; allow (read,search,compare) userdn="ldap:///anyone";)', ldap3.MODIFY_DELETE),
-        ("cn=Core Schema,cn=Schema Providers,cn=config", "ds-cfg-allow-zero-length-values-directory-string", "true", ldap3.MODIFY_REPLACE),
+        ('ds-cfg-backend-id=userRoot,cn=Backends,cn=config', 'ds-cfg-db-cache-percent', '70', LdapClient.MODIFY_REPLACE),
+        ('cn=config', 'ds-cfg-single-structural-objectclass-behavior', 'accept', LdapClient.MODIFY_REPLACE),
+        ('cn=config', 'ds-cfg-reject-unauthenticated-requests', 'true', LdapClient.MODIFY_REPLACE),
+        ('cn=Default Password Policy,cn=Password Policies,cn=config', 'ds-cfg-allow-pre-encoded-passwords', 'true', LdapClient.MODIFY_REPLACE),
+        ('cn=Default Password Policy,cn=Password Policies,cn=config', 'ds-cfg-default-password-storage-scheme', 'cn=Salted SHA-512,cn=Password Storage Schemes,cn=config', LdapClient.MODIFY_REPLACE),
+        ('cn=File-Based Audit Logger,cn=Loggers,cn=config', 'ds-cfg-enabled', 'true', LdapClient.MODIFY_REPLACE),
+        ('cn=LDAP Connection Handler,cn=Connection Handlers,cn=config', 'ds-cfg-enabled', 'true', LdapClient.MODIFY_REPLACE),
+        ('cn=JMX Connection Handler,cn=Connection Handlers,cn=config', 'ds-cfg-enabled', 'false', LdapClient.MODIFY_REPLACE),
+        ('cn=Access Control Handler,cn=config', 'ds-cfg-global-aci', '(targetattr!="userPassword||authPassword||debugsearchindex||changes||changeNumber||changeType||changeTime||targetDN||newRDN||newSuperior||deleteOldRDN")(version 3.0; acl "Anonymous read access"; allow (read,search,compare) userdn="ldap:///anyone";)', LdapClient.MODIFY_DELETE),
+        ("cn=Core Schema,cn=Schema Providers,cn=config", "ds-cfg-allow-zero-length-values-directory-string", "true", LdapClient.MODIFY_REPLACE),
     ]
 
-    with ldap3.Connection(ldap_server, user, password) as conn:
-        for dn, attr, value, mod_type in mods:
-            conn.modify(dn, {attr: [mod_type, value]})
-            if conn.result["description"] != "success":
-                logger.warning(conn.result["message"])
+    # connect to localhost
+    client = LdapClient(manager, host="localhost")
+    for dn, attr, value, mod_type in mods:
+        modified, msg = client.modify(dn, {attr: [mod_type, value]})
+        if not modified:
+            logger.warning(msg)
 
     # Create uniqueness for attrbiutes
-    with ldap3.Connection(ldap_server, user, password) as conn:
-        attrs = [
-            ("mail", "Unique mail address"),
-            ("uid", "Unique uid entry"),
-        ]
+    attrs = [
+        ("mail", "Unique mail address"),
+        ("uid", "Unique uid entry"),
+    ]
 
-        for attr, cn in attrs:
-            conn.add(
-                f'cn={cn},cn=Plugins,cn=config',
-                attributes={
-                    'objectClass': ['top', 'ds-cfg-plugin', 'ds-cfg-unique-attribute-plugin'],
-                    'ds-cfg-java-class': ['org.opends.server.plugins.UniqueAttributePlugin'],
-                    'ds-cfg-enabled': ['true'],
-                    'ds-cfg-plugin-type': [
-                        'postoperationadd',
-                        'postoperationmodify',
-                        'postoperationmodifydn',
-                        'postsynchronizationadd',
-                        'postsynchronizationmodify',
-                        'postsynchronizationmodifydn',
-                        'preoperationadd',
-                        'preoperationmodify',
-                        'preoperationmodifydn',
-                    ],
-                    'ds-cfg-type': [attr],
-                    'cn': [cn],
-                    'ds-cfg-base-dn': ["o=jans"],
-                },
-            )
-            if conn.result["description"] != "success":
-                logger.warning(conn.result["message"])
+    for attr, cn in attrs:
+        added, msg = client.add(
+            f'cn={cn},cn=Plugins,cn=config',
+            attributes={
+                'objectClass': ['top', 'ds-cfg-plugin', 'ds-cfg-unique-attribute-plugin'],
+                'ds-cfg-java-class': ['org.opends.server.plugins.UniqueAttributePlugin'],
+                'ds-cfg-enabled': ['true'],
+                'ds-cfg-plugin-type': [
+                    'postoperationadd',
+                    'postoperationmodify',
+                    'postoperationmodifydn',
+                    'postsynchronizationadd',
+                    'postsynchronizationmodify',
+                    'postsynchronizationmodifydn',
+                    'preoperationadd',
+                    'preoperationmodify',
+                    'preoperationmodifydn',
+                ],
+                'ds-cfg-type': [attr],
+                'cn': [cn],
+                'ds-cfg-base-dn': ["o=jans"],
+            },
+        )
+        if not added:
+            logger.warning(msg)
 
 
 def disable_tls13():
@@ -595,19 +571,11 @@ def modify_ads_truststore():
 
         cfg_key = out.decode().split("=")[-1].replace(":", "")
 
-        host = "localhost:1636"
-        user = manager.config.get("ldap_binddn")
-        password = decode_text(
-            manager.secret.get("encoded_ox_ldap_pw"),
-            manager.secret.get("encoded_salt")
-        )
-
-        ldap_server = ldap3.Server(host, 1636, use_ssl=True)
-
-        with ldap3.Connection(ldap_server, user, password) as conn:
-            conn.delete(f"ds-cfg-key-id={cfg_key},cn=instance keys,cn=admin data")
-            if conn.result["description"] != "success":
-                logger.warning(conn.result["message"])
+        # connect to localhost
+        client = LdapClient(manager, host="localhost")
+        deleted, msg = client.delete(f"ds-cfg-key-id={cfg_key},cn=instance keys,cn=admin data")
+        if not deleted:
+            logger.warning(msg)
 
     def recreate_ads_truststore():
         os.unlink("/opt/opendj/config/ads-truststore")

@@ -25,7 +25,7 @@ def admin_password_bound(manager, password_file=DEFAULT_ADMIN_PW_PATH):
 
     try:
         yield password_file
-    except Exception:
+    except Exception:  # noqa: B902
         raise
     finally:
         with contextlib.suppress(FileNotFoundError):
